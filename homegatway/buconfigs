@@ -1,0 +1,66 @@
+#!/bin/bash
+
+# $Header: /root/bin/buconfigs,v 1.8 2013/10/13 16:02:55 root Exp $
+# Script syncs all of the RCS files except for ones in ${exceptionsdirs}
+   # If directory name has spaces, back slash (escape) the spaces!
+# The script also checks to see if the RCS files are locked and lets you know.
+# Make sure that ${archivedir} is a directory that gets backed up.
+
+set -e
+set -u
+
+openrcs="/tmp/openrcs.tmp"
+chgto='larryw.larryw'
+mailtowho="larry@rx4systems.com"
+timestamp=$(date +%b%d_%I%M.%S%P_%Z)
+archivedir="/home/larryw/rcsdir"
+exceptiondirs="${archivedir};/proc;/root/RCS;\
+/media/extdrive/mikewbu;/root/NS1_Stuff;/mnt;\
+/home/larryw/MyDocs/ServerConfigs/Current_RCS_Files"
+
+mkdir -p ${archivedir}
+rm -f ${openrcs}
+IFS=$(echo -en ";")
+
+traperror () {
+    printf "%s\n" \
+           "[Error] ${timestamp}: script ${0} on ${HOSTNAME}" |\
+    mail -s "$0 Script ERROR on $HOSTNAME" ${mailtowho}
+}
+trap traperror ERR
+
+# Build exceptions list
+allexceptions=$(for exception in ${exceptiondirs}; do
+   echo -n "-path ${exception} -prune -o "
+done)
+
+# Find using exceptions list
+CMD="/usr/bin/find / ${allexceptions} -iname \"*,v\" -print"
+eval $CMD | while read line
+do
+   # Make a list of open rcs files
+   if rlog -L -l ${line} | grep -q  "locked"; then
+      echo "${line}"  >> ${openrcs}
+   fi
+   # Copy files to the archive directory
+   cp ${line} "${archivedir}"/$(echo "${line}" |  sed s/\\//./g | cut -c2-)
+done
+
+# Check for open RCS files and email warning
+if [ -s ${openrcs} ]; then
+   echo -e "the following files RCS files are checked out on $HOSTNAME\
+   \nyou may consider checking them back in: \n\n$(cat ${openrcs})" |\
+   mail -s "$0 Script warning, open RCS files on $HOSTNAME" ${mailtowho}
+fi
+
+pushd ${archivedir}
+
+if ls | grep -q ",v"$
+then
+   rm -f archiveRCS*
+   tar -cvf archiveRCS-${timestamp}.tar *,v > archiveRCS-${timestamp}.log
+   rm -f *,v
+   chown ${chgto} *
+else
+   echo -e $(ls -l ${archivedir}) | mail -s "$0 Script ERROR on $HOSTNAME" ${mailtowho}
+fi

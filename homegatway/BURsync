@@ -1,0 +1,104 @@
+#!/bin/bash
+# $Header: /home/larryw/bin/BURsync,v 1.16 2012/11/03 19:33:38 root Exp $
+# NOTE! This script depends on having KeyChain Installed so you can source your
+#       ssh-key for Remote Passwordless Login, AutoSource variable below.
+# rsync files from local machine to: $local_fs|$lan_fs|$remote_fs
+# archive dir created each time there are changes or deletions If yes argument used
+# to remove old archives copy clean_archives to $archive_dir and run it!
+# Logs will be mailed and then cleared weekley.
+# Add cron to run this script every day. - 1 0 * * * /PathToThisScript
+
+BwLimit=30 #KBPS
+mylog="/home/larryw/larrybu.log"
+mailtowho="larry@weinhouse.com"
+remote_fs="escondido.lanaicityrental.com"
+lan_fs="192.168.100.250"
+local_fs="localhost"
+pid="/home/larryw/rsync.pid"
+AutoSource="/home/larryw/.keychain/Friar-sh"
+
+print_header () {
+echo -e "\n=============================================="     >> $2
+echo      "$1 $(date)"                                         >> $2
+echo      "=============================================="     >> $2
+ }
+errors=""
+err_check () {
+if [ $? -gt 0 ]; then
+   errors="$errors $1"
+fi
+}
+MyBu () {
+from_path=$1
+to_path=$2
+filesystem_to=$3
+archive_yes_no=$4
+
+archive_dir="${to_path}Archives_/"
+bu_folder="${archive_dir}$(basename $0)-$(date +%b%d_%I%M%P.%s)"
+print_header "${from_path} to ${filesystem_to}:${to_path}" ${mylog}
+if [ ${archive_yes_no} == "yes" ]; then
+   case ${filesystem_to} in
+     ${remote_fs})
+       /usr/bin/rsync -azv -e ssh --del --backup --backup-dir=${bu_folder} \
+       --exclude="$(basename ${archive_dir})" --exclude=".dropbox.cache" \
+       --bwlimit=${BwLimit} ${from_path} ${remote_fs}:/${to_path} >> ${mylog} 2>&1;;
+     ${lan_fs})
+       /usr/bin/rsync -av -e ssh --del --backup --backup-dir=${bu_folder} \
+       --exclude="$(basename ${archive_dir})" ${from_path} ${lan_fs}:/${to_path} >> ${mylog} 2>&1;;
+     ${local_fs})
+       /usr/bin/rsync -av --del --backup --backup-dir=${bu_folder} \
+       --exclude="$(basename ${archive_dir})" ${from_path} ${to_path} >> ${mylog} 2>&1
+   esac
+   err_check "Errror Backing up ${from_path} to ${to_path}"
+else
+   case ${filesystem_to} in
+     ${remote_fs})
+       /usr/bin/rsync -azv -e ssh --del --bwlimit=${BwLimit} \
+       ${from_path} ${remote_fs}:/${to_path} >> ${mylog} 2>&1;;
+     ${lan_fs})
+       /usr/bin/rsync -av -e ssh --del \
+       ${from_path} ${lan_fs}:/${to_path} >> ${mylog} 2>&1;;
+     ${local_fs})
+       /usr/bin/rsync -av --del ${from_path} ${to_path} >> ${mylog} 2>&1
+   esac
+   err_check "Errror Backing up ${from_path} to ${to_path}"
+fi
+}
+# Check if rsync is still running from day before.
+if [ -e $pid ]; then
+   ps aux | grep $(cat $pid) | grep $0$ | grep -v grep >/dev/null 2>&1
+   if [ $? -gt 0 ]; then
+      rm -f $pid
+   else
+      echo "Job is still running," | mail -s "Huge $0 Job" $mailtowho
+      exit 0
+   fi
+fi
+echo $$ > $pid
+
+# If it is Sunday, clear log and email archive.
+if [ $(date +%u) -eq 1 ]; then
+  cat $mylog | mail -s "Backup week of $(date +%m/%d/%y -d"-7 day")" $mailtowho
+  if [ $? -lt 1 ]; then
+     rm $mylog
+  fi
+fi
+
+source $AutoSource > /dev/null
+
+# MyBu "from/path/" "to/path/" $local_fs|$lan_fs|$remote_fs yes|no
+#------------------------------------------------------------
+MyBu "/home/larryw/" "/media/2TB/larrywbu/" ${remote_fs} yes
+# MyBu "/home/larryw/" "/home/share/home/larryw/" ${local_fs} no
+# MyBu "/home/larryw/" "/var/bigvol/Backup/" ${lan_fs} no
+# MyBu "/media/backup/Archive/" "/var/bigvol/Archive/" ${lan_fs} no
+
+# If there are errors, send a message
+if [ -n "$errors" ]; then
+   echo -e "Probem while running $0\n\n \
+   Error backing up: $errors" | mail -s "Rsync Error" $mailtowho
+fi
+
+# Delete lock file
+rm -f $pid

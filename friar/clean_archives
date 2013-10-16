@@ -1,0 +1,76 @@
+#!/bin/bash
+# $Header: /home/larryw/bin/clean_archives,v 1.4 2009/12/31 01:12:18 larryw Exp larryw $
+# This needs to be in your recovery directory which is
+# A sub directory of your backup directory.
+# Add cron: 30 20 * * 4  (This would run at 8:30 on Thursday evenings once per week) 
+
+percent_archived=15 # Percentage of backed up files to be allowed archived
+days_archived=40    # Can delete after archived for this long
+mailtowho="larry@weinhouse.com"
+archivedir="/media/myvol/larrywbu/Archives_"
+log=""
+
+cd ${archivedir}
+
+check_percent () {
+size_recover_dir=$(( $(du --max-depth=0 | awk '{print $1}') / 1024 ))
+size_bu_dir=$(( $(du ../ --max-depth=0 --exclude=$(basename $(pwd)) | awk '{print $1}') / 1024 ))
+percent_=$(echo "scale=2; ${size_recover_dir}/${size_bu_dir}")
+percent_used=$(echo ${percent_} | bc | cut -c2-)
+if [ ${size_recover_dir} -ge ${size_bu_dir} ]; then
+   echo "something really bad happened while running ${0} on ${HOSTNAME}" | mail ${mailtowho}
+   exit 1
+fi
+}
+
+err_check () {
+if [ $? -gt 0 ]; then
+   errors="$errors $1"
+fi
+}
+
+count=0
+check_percent
+while read line; do
+   ((count++)) 
+   # Compress files that have not yet been
+   find ${line} -type f ! -name "*.gz" -exec gzip {} \;
+   created=$(echo ${line} | awk -F "." '{print $2}')
+   today=$(date +%s)
+   age=$((($today-$created) / 86400))
+   if [ ${percent_used} -gt ${percent_archived} ] && [ ${age} -gt ${days_archived} ]; then
+         rm -rf ${line}
+         err_check "error removing archive dir: ${line}"
+         log="${log} ${line}"
+         ((count--))
+         check_percent
+   fi
+done < <(ls | grep ^.*[\.][0-9]*[0-9]$  | sort -t "." -n -k 2)
+
+if [ ${percent_used} -gt ${percent_archived} ] && [ ${count} -lt ${days_archived} ]; then
+   echo "You have only ${count} archives using ${percent_used}% of your backups" | \
+   mail -s "error running ${0} on ${HOSTNAME}" ${mailtowho} 
+fi
+
+# Send results
+lastlog="${archivedir}/lastlog.last"
+cat << EOF > ${lastlog} 
+As of $(date)
+You are backing up ${size_bu_dir}MB of files at: $(dirname $(pwd)) on ${HOSTNAME}.
+There are: ${count} archives for this backup located at: $(pwd)
+Archives are compressed and are using ${size_recover_dir}MB of space.
+You are using ${percent_used:-00}% of the ${percent_archived}% allocated for archives.
+${days_archived} or more days of archives will be collected until you have reached ${percent_archived}% 
+EOF
+if [[ -n $log ]]; then
+   echo "---------------------------" >> ${lastlog} 
+   echo "The following archives were deleted:" >> ${lastlog} 
+   for i in $(echo $log); do echo $i;done >> ${lastlog} 
+fi
+
+cat ${lastlog} | mail -s "Backup and Archive Report as of $(date)" ${mailtowho}
+
+# If there are errors, send a message
+if [ -n "$errors" ]; then
+   echo "Errors: $errors" | mail -s "error running $0 on $HOSTNAME" $mailtowho
+fi

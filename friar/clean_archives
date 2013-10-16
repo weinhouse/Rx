@@ -6,7 +6,7 @@
 
 percent_archived=15 # Percentage of backed up files to be allowed archived
 days_archived=40    # Can delete after archived for this long
-mailtowho="larry@weinhouse.com"
+mailtowho="larry@rx4systems.com"
 archivedir="/media/myvol/larrywbu/Archives_"
 log=""
 

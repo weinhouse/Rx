@@ -43,15 +43,12 @@ function RemoveArchive {
 mkdir -p ${thedir}${archivedir}
 
 # Check for existing lock file and create new one
-if [ -e ${pid} ]; then
-   if ps aux | grep $(basename $0)$  >/dev/null 2>&1;
-   then
-      rm -f ${pid}
-   else
-      echo -e "\nThe $0 Script did not run because of existing lock file\n" >> \
-            ${thedir}${logfile}
+if [ -f ${pid} ] && [ -d /proc/$(cat ${pid}) ]; then
+      echo -e "\nThe $0 Script did not run because of existing lock file\n" | \
+           mail -s "ERROR on ${HOSTNAME} running $0 Script" ${mailtowho} 
       exit 0
-   fi
+   else
+      rm -f ${pid}
 fi
 echo $$ > ${pid}
 

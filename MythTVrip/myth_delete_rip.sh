@@ -49,4 +49,9 @@ myheredoc
 done
 
 # Change permissions in Rip Dir.
-chmod 666 ${ripdir}/*
+ls ${ripdir} | while read line
+do
+   if [ ! -d "${ripdir}/${line}" ]; then
+      chmod 666 "${ripdir}/${line}"
+   fi
+done
